@@ -1,3 +1,27 @@
+# Mock modules that simulate IO operations over real filesystem
+#
+# Copyright (C) 2012  Red Hat, Inc.
+#
+# This copyrighted material is made available to anyone wishing to use,
+# modify, copy, or redistribute it subject to the terms and conditions of
+# the GNU General Public License v.2, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY expressed or implied, including the implied warranties of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+# Public License for more details.  You should have received a copy of the
+# GNU General Public License along with this program; if not, write to the
+# Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.  Any Red Hat trademarks that are incorporated in the
+# source code or documentation are not subject to the GNU General Public
+# License and may only be used or replicated with the express permission of
+# Red Hat, Inc.
+#
+# Red Hat Author(s): Martin Sivak <msivak@redhat.com>
+#
+
+
+__all__ = ["prepare_io", "inject_io"]
+
 import os
 import glob
 from di import inject
@@ -51,8 +75,36 @@ class DummyOS(object):
     def listdir(self, name):
         return self.__disk.os_listdir(name)
 
+    @wraps(os.chdir)
+    def chdir(self, path):
+        return self.__disk.os_chdir(path)
+
+    @wraps(os.chmod)
+    def chmod(self, path, mode):
+        return self.__disk.os_chmod(path, mode)
+
+    @wraps(os.chown)
+    def chown(self, path, uid, gid):
+        return self.__disk.os_chown(path, uid, gid)
+
+    @wraps(os.readlink)
+    def readlink(self, path):
+        return self.__disk.os_readlink(path)
+
+    @wraps(os.symlink)
+    def symlink(self, target, path):
+        return self.__disk.os_symlink(target, path)
+
+    
 @inject(DiskIO, DummyOS, DummyGlob)
-def takeover():
+def prepare_io():
+    """This method creates a filesystem object and
+       returns a tuple (fsobject, object_dict).
+
+      fsobject is the virtual filesystem and object_dict
+      is a dictionary which can be used to remap standard
+      io modules and methods to work with it.
+    """
     diskio = DiskIO()
     modules  = {
         "os": DummyOS(diskio),
@@ -62,3 +114,14 @@ def takeover():
         }
     
     return diskio, modules
+
+def inject_io(di_registry):
+    """This method is a helper that plays nicely with unittests and
+       the python-di package. It creates new virtual filesystem,
+       registers it's method using the dependency injection
+       and returns the filesystem object back for the test to modify
+       and query.
+    """
+    diskio, modules = prepare_io()
+    di_registry.register(**modules)
+    return diskio

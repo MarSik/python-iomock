@@ -19,7 +19,7 @@
 
 from StringIO import StringIO
 import fnmatch
-import os
+import os.path
 
 class DiskIO(object):
     """Simple object to simplify mocking of file operations in Mock
@@ -55,9 +55,29 @@ class DiskIO(object):
         pass
 
     class Link(object):
-        pass
+        def __init__(self, diskio, target):
+            self.target = target
+            self._diskio = diskio
 
+        @property
+        def content(self, stack = {}, source = ""):
+            if self in stack:
+                raise Exception("Infinite recursion in symlinks")
+
+            target = os.path.join(source, self.target)
+
+            content = self._diskio.get(target, None)
+            if hasattr(content, "content"):
+                stack[self] = True
+                content = content.content(stack = stack, source = target)
+
+            return content
+                
     def __init__(self):
+        self.umask = 022
+        self.uid = 0
+        self.gid = 0
+        
         self.reset()
 
     def __getitem__(self, key):
@@ -65,26 +85,42 @@ class DiskIO(object):
 
     def __setitem__(self, key, value):
         self.fs[key] = value
-
+        self.ugo.setdefault(key, 0666 & (~self.umask))
+        self.owner.setdefault(key, self.uid)
+        self.group.setdefault(key, self.gid)
+        
     def reset(self):
         self.fs = {
             "/proc": self.Dir,
             "/proc/cmdline": "linux",
         }
-        self._pwd = "/"
+        self.ugo = {}
+        self.owner = {}
+        self.group = {}
+        self.cwd = "/"
 
     #Emulate file objects
     def open(self, filename, mode = "r"):
-        path = os.path.join(self._pwd, filename)
+        path = os.path.join(self.cwd, filename)
         content = self.fs.get(path, None)
+
+        if hasattr(content, "content"):
+            content = content.content(source = path)
+        
         if content == self.Dir:
             raise IOError("[Errno 21] Is a directory: '%s'" % (path))
         elif mode.startswith("w"):
             self.fs[path] = ""
+            self.ugo.setdefault(path, 0666 & (~self.umask))
+            self.owner.setdefault(path, self.uid)
+            self.group.setdefault(path, self.gid)
             f = self.TestFile(self.fs, path, self.fs[path])
         elif mode.endswith("a"):
             if not path in self.fs:
                 self.fs[path] = ""
+                self.ugo[path] = 0666 & (~self.umask)
+                self.owner.setdefault(path, self.uid)
+                self.group.setdefault(path, self.gid)
             f = self.TestFile(self.fs, path, self.fs[path])
             f.seek(0, os.SEEK_END)
         elif content == None:
@@ -109,7 +145,7 @@ class DiskIO(object):
                     if entry.startswith(path) and entry != path]
 
     def os_path_exists(self, path):
-        path = os.path.join(self._pwd, path)
+        path = os.path.join(self.cwd, path)
         return self.fs.has_key(path)
 
     def os_path_isdir(self, path):
@@ -119,7 +155,7 @@ class DiskIO(object):
         return len(fnmatch.filter(self.fs.keys(), path)) > 0
 
     def os_remove(self, path):
-        path = os.path.join(self._pwd, path)
+        path = os.path.join(self.cwd, path)
         try:
             del self.fs[path]
         except KeyError:
@@ -127,3 +163,38 @@ class DiskIO(object):
 
     def os_access(self, path, mode):
         return self.os_path_exists(path)
+
+    def os_chdir(self, path):
+        self.cwd = path
+
+    def os_chmod(self, path, mode):
+        try:
+            old = self.ugo[path]
+            self.ugo[path] = mode
+        except KeyError:
+            raise OSError("[Errno 2] No such file or directory: '%s'" % (path,))
+        
+    def os_chown(self, path, uid, gid):
+        try:
+            _old = self.owner[path]
+            if uid >= 0:
+                self.owner[path] = uid
+            if gid >= 0:
+                self.group[path] = gid
+        except KeyError:
+            raise OSError("[Errno 2] No such file or directory: '%s'" % (path,))
+
+    def os_readlink(self, path):
+        try:
+            path = os.path.join(self.cwd, path)
+            link = self.fs[path]
+            if not isinstance(link, self.Link):
+                raise OSError("[Errno 22] Invalid argument: '%s'" % (path,))
+            
+            return link.target
+        except KeyError:
+            raise OSError("[Errno 2] No such file or directory: '%s'" % (path,))
+
+    def os_symlink(self, target, path):
+        path = os.path.join(self.cwd, path)
+        self.fs[path] = self.Link(diskio = self, target = target)
