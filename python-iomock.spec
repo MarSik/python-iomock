@@ -19,7 +19,8 @@ Source0:        http://pypi.python.org/packages/source/d/iomock/iomock-%{version
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  python-nose
-#Requires:       
+BuildRequires:  python-di
+Requires:       python-di
 BuildArch:      noarch
 
 %description
@@ -43,8 +44,8 @@ rm -rf ${buildroot}%{python_sitelib}/setuptools/tests
 rm -rf $RPM_BUILD_ROOT
 
 %files
-%{python_sitelib}/di
-%{python_sitelib}/di-*.egg-info
+%{python_sitelib}/iomock
+%{python_sitelib}/iomock-*.egg-info
 
 %doc
 
