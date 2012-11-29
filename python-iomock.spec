@@ -18,6 +18,7 @@ URL:            https://github.com/MarSik/python-iomock
 Source0:        http://pypi.python.org/packages/source/d/iomock/iomock-%{version}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
+BuildRequires:  python-setuptools-devel
 BuildRequires:  python-nose
 BuildRequires:  python-di
 Requires:       python-di
@@ -29,6 +30,10 @@ It is intended to be used in unit testing environments.
 
 %prep
 %setup -q -n iomock-%{version}
+
+# remove upstream egg-info
+rm -rf *.egg-info
+
 
 %build
 %{__python} setup.py build
